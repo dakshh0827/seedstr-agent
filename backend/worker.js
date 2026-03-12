@@ -62,7 +62,6 @@ export function getWorkerStatus() {
 async function poll() {
   if (!isRunning) return;
 
-  // CRITICAL: skip this tick if a previous poll cycle is still processing jobs
   if (isPollInProgress) {
     emitLog('warn', 'Previous poll still running — skipping this cycle');
     return;
@@ -81,11 +80,9 @@ async function poll() {
       return;
     }
 
-    // Filter to only truly new jobs — mark them immediately to prevent re-processing
     const newJobs = jobs.filter(j => {
       if (processedJobIds.has(j.id)) return false;
-      if (j.status !== 'pending') return false;
-      // Mark as "in-flight" right now, before any await, so concurrent polls skip it
+      if (j.status !== 'OPEN' && j.status !== 'pending') return false; 
       processedJobIds.add(j.id);
       return true;
     });
@@ -107,7 +104,20 @@ async function processJob(job) {
   emitLog('info', `Processing job ${job.id}...`, { jobId: job.id });
   emitJobUpdate({ ...job, status: 'processing' });
 
-  // ── Step 1: Call the AI coding agent webhook ──
+  // ── Step 1: Handle V2 Swarm Acceptance ──
+  if (job.jobType === 'SWARM') {
+    try {
+      emitLog('info', `Accepting SWARM job ${job.id} to claim a slot...`, { jobId: job.id });
+      await seedstrClient.acceptJob(job.id);
+    } catch (err) {
+      emitLog('warn', `Could not accept SWARM job ${job.id} (may be full): ${err.message}`, { jobId: job.id });
+      emitJobUpdate({ ...job, status: 'failed', error: 'Failed to claim slot' });
+      currentJobId = null;
+      return;
+    }
+  }
+
+  // ── Step 2: Call the AI coding agent webhook ──
   let solution;
   try {
     emitLog('info', `Calling webhook agent for job ${job.id}...`, { jobId: job.id });
@@ -126,17 +136,26 @@ async function processJob(job) {
     failureCount++;
     emitLog('error', `Webhook failed for job ${job.id}: ${err.message}`, { jobId: job.id });
     emitJobUpdate({ ...job, status: 'failed', error: err.message });
-    // processedJobIds already has this id — leave it so we don't retry endlessly
+    
+    // Explicitly decline job to free it up and log standard decline
+    try {
+      await seedstrClient.declineJob(job.id, "Webhook failed to generate a response");
+      emitLog('warn', `Declined job ${job.id} due to webhook failure.`);
+    } catch (e) {}
+
     currentJobId = null;
     return;
   }
 
-  // ── Step 2: Submit solution to Seedstr ──
+  // ── Step 3: Submit solution to Seedstr ──
   try {
     emitLog('info', `Submitting solution for job ${job.id}...`, { jobId: job.id });
-    await seedstrClient.submitSolution(job.id, solution);
+    const result = await seedstrClient.submitSolution(job.id, solution, 'TEXT');
     successCount++;
     emitLog('success', `Job ${job.id} completed and submitted ✓`, { jobId: job.id });
+    if (result.payout) {
+      emitLog('success', `Payout: ${result.payout.amountNative} ${result.payout.chain}`, { jobId: job.id });
+    }
     emitJobUpdate({ ...job, status: 'completed', solution });
   } catch (err) {
     failureCount++;

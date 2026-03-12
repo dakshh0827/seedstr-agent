@@ -6,7 +6,8 @@ import PromptTester from '../components/PromptTester.jsx'
 
 export default function Dashboard({
   connected, agentStatus, workerStatus, jobs, logs, latestSolution,
-  onToggleWorker, onTestPrompt,
+  platformStats, skills,
+  onToggleWorker, onTestPrompt, onUpdateProfile, onVerify,
 }) {
   const running = workerStatus?.running
 
@@ -89,7 +90,7 @@ export default function Dashboard({
       <main style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
         {/* Row 1 — metrics bar */}
-        <MetricsBar workerStatus={workerStatus} jobs={jobs} />
+        <MetricsBar workerStatus={workerStatus} jobs={jobs} platformStats={platformStats} />
 
         {/* Row 2 — AgentStatus | JobFeed | LogsPanel — all same height */}
         <div style={{
@@ -98,7 +99,13 @@ export default function Dashboard({
           gap: '12px',
           alignItems: 'stretch',                     /* KEY: all columns same height */
         }}>
-          <AgentStatus connected={connected} agentStatus={agentStatus} workerStatus={workerStatus} />
+          <AgentStatus 
+            connected={connected} 
+            agentStatus={agentStatus} 
+            workerStatus={workerStatus}
+            onUpdateProfile={onUpdateProfile}
+            onVerify={onVerify}
+          />
           <JobFeed jobs={jobs} />
           <LogsPanel logs={logs} />
         </div>
@@ -130,14 +137,14 @@ function Stat({ label, value, color }) {
   )
 }
 
-function MetricsBar({ workerStatus, jobs }) {
+function MetricsBar({ workerStatus, jobs, platformStats }) {
   const metrics = [
     { label: 'Total Jobs',    value: jobs.length },
     { label: 'Solved',        value: workerStatus?.successCount ?? 0,     color: 'var(--green)' },
     { label: 'Failed',        value: workerStatus?.failureCount ?? 0,     color: workerStatus?.failureCount ? 'var(--red)' : undefined },
-    { label: 'Pending',       value: jobs.filter(j => j.status === 'pending').length, color: 'var(--amber)' },
-    { label: 'Poll Interval', value: `${(workerStatus?.pollIntervalMs ?? 10000) / 1000}s` },
-    { label: 'Last Poll',     value: workerStatus?.lastPollTime ? timeAgo(workerStatus.lastPollTime) : '—' },
+    { label: 'Pending',       value: jobs.filter(j => j.status === 'pending' || j.status === 'OPEN').length, color: 'var(--amber)' },
+    { label: 'Platform Jobs', value: platformStats?.totalJobs ?? '—' },
+    { label: 'Open Jobs',     value: platformStats?.openJobs ?? '—', color: 'var(--blue)' },
   ]
 
   return (

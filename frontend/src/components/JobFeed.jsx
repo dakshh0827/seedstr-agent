@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 const STATUS = {
+  OPEN: { cls: 'badge-pending', label: 'Open' },
   pending: { cls: 'badge-pending', label: 'Pending' },
   processing: { cls: 'badge-solving', label: 'Solving' },
   completed: { cls: 'badge-done', label: 'Done' },
@@ -51,16 +52,23 @@ function JobRow({ job, selected, onClick }) {
         </div>
       </div>
 
-      {job.difficulty && (
-        <span style={{
-          fontSize: '9px', fontWeight: 600, letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          color: job.difficulty === 'hard' ? 'var(--red)' : job.difficulty === 'medium' ? 'var(--amber)' : 'var(--green)',
-          fontFamily: 'var(--mono)',
-        }}>
-          {job.difficulty}
-        </span>
-      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-end' }}>
+        {job.jobType === 'SWARM' && (
+           <span style={{ fontSize: '9px', fontWeight: 600, color: '#a78bfa', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
+             SWARM
+           </span>
+        )}
+        {job.difficulty && (
+          <span style={{
+            fontSize: '9px', fontWeight: 600, letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: job.difficulty === 'hard' ? 'var(--red)' : job.difficulty === 'medium' ? 'var(--amber)' : 'var(--green)',
+            fontFamily: 'var(--mono)',
+          }}>
+            {job.difficulty}
+          </span>
+        )}
+      </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
         {isActive && <div className="dot-live" style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#60a5fa' }} />}
@@ -107,7 +115,7 @@ export default function JobFeed({ jobs }) {
         flexShrink: 0,
       }}>
         <span className="label">Prompt</span>
-        <span className="label">Level</span>
+        <span className="label">Type/Level</span>
         <span className="label">Status</span>
       </div>
 

@@ -1,6 +1,20 @@
 # 🤖 Seedstr Agent Dashboard
 
-A full-stack AI agent dashboard that automatically polls Seedstr jobs, solves them with your coding agent webhook, and submits solutions — all visualized in a real-time hacker-aesthetic UI.
+A full-stack AI agent for the **Seedstr Hackathon** — automatically polls jobs, solves them using your AI coding agent webhook, and submits solutions. Everything is visualized in a real-time hacker-aesthetic dashboard.
+
+> **Seedstr**: The Freelance Marketplace Where Agents Do the Work
+
+---
+
+## 🚀 Features
+
+- **Automatic Job Polling**: Continuously fetches available jobs from Seedstr
+- **SWARM Job Support**: Accepts and processes SWARM multi-agent jobs
+- **AI Agent Integration**: Sends prompts to your deployed AI agent webhook
+- **Real-time Dashboard**: Live updates via Socket.IO
+- **Full Seedstr API Coverage**: All v2 API endpoints implemented
+- **Twitter Verification**: Verify your agent directly from the UI
+- **Platform Stats**: View leaderboard and platform statistics
 
 ---
 
@@ -9,16 +23,17 @@ A full-stack AI agent dashboard that automatically polls Seedstr jobs, solves th
 ```
 seedstr-agent/
 ├── backend/
-│   ├── server.js          # Express + Socket.IO server
-│   ├── seedstrClient.js   # Seedstr API + webhook HTTP client
+│   ├── server.js          # Express + Socket.IO server (all REST endpoints)
+│   ├── seedstrClient.js   # Seedstr API v2 client
 │   ├── worker.js          # Auto-polling job worker
 │   ├── package.json
-│   └── .env               # Backend environment variables
+│   ├── .env               # Backend environment (create from .env.example)
+│   └── .env.example       # Template
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── AgentStatus.jsx    # Status panel
+│   │   │   ├── AgentStatus.jsx    # Profile & verification panel
 │   │   │   ├── JobFeed.jsx        # Live job list
 │   │   │   ├── SolutionViewer.jsx # Code display with syntax highlighting
 │   │   │   ├── LogsPanel.jsx      # Activity log
@@ -27,34 +42,66 @@ seedstr-agent/
 │   │   │   └── Dashboard.jsx      # Main layout
 │   │   ├── App.jsx                # Root + socket connection
 │   │   ├── main.jsx
-│   │   └── index.css             # Tailwind v4 + custom styles
+│   │   └── index.css             # Custom styles
 │   ├── index.html
 │   ├── vite.config.js
 │   ├── package.json
-│   └── .env                       # Frontend environment variables
+│   ├── .env               # Frontend environment
+│   └── .env.example       # Template
 │
 └── README.md
 ```
 
 ---
 
-## ⚡ Quick Start (Local)
+## ⚡ Quick Start
 
-### 1. Backend setup
+### 1. Register Your Agent on Seedstr
+
+First, register your agent to get an API key:
+
+```bash
+curl -X POST https://www.seedstr.io/api/v2/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "walletAddress": "YOUR_WALLET_ADDRESS",
+    "walletType": "ETH",
+    "ownerUrl": "https://your-agent-url.com"
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "apiKey": "mj_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "agentId": "clxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+Save your `apiKey` — you'll need it for the next step.
+
+### 2. Backend Setup
 
 ```bash
 cd backend
 npm install
 ```
 
-Edit `.env`:
+Create `.env` file (or copy from `.env.example`):
 ```env
-SEEDSTR_API_KEY=your_key_here
-SEEDSTR_BASE_URL=https://api.seedstr.io
-AGENT_WEBHOOK_URL=https://ai-agent1-lvh9.onrender.com/webhook/713b4a9e-0c1f-4814-addf-e3e379f4c1d9
-MOCK_SEEDSTR=true        # set to false when you have a real API key
-FRONTEND_URL=http://localhost:5173
+# Your Seedstr API Key from registration
+SEEDSTR_API_KEY=mj_your_api_key_here
+
+# Seedstr API base URL
+SEEDSTR_BASE_URL=https://www.seedstr.io
+
+# Your AI agent webhook URL
+AGENT_WEBHOOK_URL=http://3.144.12.2:5678/webhook/713b4a9e-0c1f-4814-addf-e3e379f4c1d9
+
+# Server configuration
 PORT=3001
+FRONTEND_URL=http://localhost:5173
 ```
 
 Start the backend:
@@ -63,16 +110,11 @@ npm run dev       # development (auto-reload)
 npm start         # production
 ```
 
-### 2. Frontend setup
+### 3. Frontend Setup
 
 ```bash
 cd frontend
 npm install
-```
-
-Edit `.env`:
-```env
-VITE_BACKEND_URL=http://localhost:3001
 ```
 
 Start the frontend:
@@ -84,24 +126,23 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## 🔧 Environment Variables Reference
+## 🔧 Environment Variables
 
 ### Backend (`backend/.env`)
 
 | Variable | Description | Default |
 |---|---|---|
-| `SEEDSTR_API_KEY` | Your Seedstr API key | — |
-| `SEEDSTR_BASE_URL` | Seedstr API base URL | `https://api.seedstr.io` |
-| `AGENT_WEBHOOK_URL` | AI agent webhook endpoint | pre-configured |
-| `MOCK_SEEDSTR` | Use mock jobs (demo mode) | `true` |
+| `SEEDSTR_API_KEY` | Your Seedstr API key (required for production) | — |
+| `SEEDSTR_BASE_URL` | Seedstr API base URL | `https://www.seedstr.io` |
+| `AGENT_WEBHOOK_URL` | Your AI agent webhook endpoint | pre-configured |
 | `FRONTEND_URL` | Frontend URL for CORS | `http://localhost:5173` |
 | `PORT` | Server port | `3001` |
 
 ### Frontend (`frontend/.env`)
 
-| Variable | Description |
-|---|---|
-| `VITE_BACKEND_URL` | Backend server URL |
+| Variable | Description | Default |
+|---|---|---|
+| `VITE_BACKEND_URL` | Backend server URL | `http://localhost:3001` |
 
 ---
 
@@ -126,16 +167,20 @@ Open [http://localhost:5173](http://localhost:5173)
 ## 🏗 How It Works
 
 ```
-Seedstr Jobs API
+Seedstr Jobs API (/api/v2/jobs)
       ↓  (every 10s)
-  Worker polls for new jobs
+  Worker polls for new OPEN jobs
+      ↓
+  For SWARM jobs: Accept first (/api/v2/jobs/:id/accept)
       ↓
   AI Agent Webhook
   POST { sessionId, chatInput: prompt }
       ↓
-  Receive solution
+  Receive solution from AI
       ↓
-  Submit to Seedstr
+  Submit to Seedstr (/api/v2/jobs/:id/respond)
+      ↓
+  Receive payout (automatic for SWARM jobs)
       ↓
   Emit via Socket.IO → React Dashboard
 ```
@@ -144,7 +189,7 @@ Seedstr Jobs API
 
 ## 🎨 Tech Stack
 
-- **Frontend**: React 18 + Vite + TailwindCSS v4
+- **Frontend**: React 18 + Vite
 - **Backend**: Node.js + Express + Socket.IO
 - **HTTP**: Axios
 - **Syntax Highlighting**: react-syntax-highlighter (VSCode Dark+)
@@ -154,14 +199,49 @@ Seedstr Jobs API
 
 ## 📡 API Endpoints
 
+### Agent Management
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/register` | Register a new agent |
+| GET | `/api/profile` | Get agent profile |
+| PATCH | `/api/profile` | Update agent profile |
+| POST | `/api/verify` | Trigger Twitter verification |
+
+### Jobs
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/jobs` | Fetch available jobs |
+| GET | `/api/jobs/:id` | Get job details |
+| POST | `/api/jobs/:id/accept` | Accept a SWARM job |
+| POST | `/api/jobs/:id/decline` | Decline a job |
+| POST | `/api/solve-job` | Send prompt to AI webhook |
+| POST | `/api/submit-job` | Submit solution to Seedstr |
+
+### Files
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/upload` | Upload files for attachment |
+
+### Platform Data
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/skills` | List available skills |
+| GET | `/api/agents/:id` | Get public agent profile |
+| GET | `/api/leaderboard` | Get top agents |
+| GET | `/api/stats` | Get platform statistics |
+
+### Worker Control
+
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/status` | Agent + worker status |
-| GET | `/api/jobs` | Fetch jobs from Seedstr |
-| POST | `/api/solve-job` | Send prompt to webhook |
-| POST | `/api/submit-job` | Submit solution to Seedstr |
 | POST | `/api/worker/start` | Start polling worker |
 | POST | `/api/worker/stop` | Stop polling worker |
+| GET | `/api/worker/status` | Get worker status |
 
 ### Socket.IO Events
 
@@ -172,3 +252,86 @@ Seedstr Jobs API
 | `jobUpdate` | server → client | Single job update |
 | `solution` | server → client | Solution object |
 | `workerStatus` | server → client | Worker state |
+
+---
+
+## 📋 Seedstr API v2 Reference
+
+All Seedstr endpoints are fully implemented in the client. Key endpoints:
+
+### Registration
+```bash
+POST /api/v2/register
+# Returns: { success, apiKey, agentId }
+```
+
+### Profile Management
+```bash
+GET /api/v2/me              # Get profile
+PATCH /api/v2/me            # Update profile (name, bio, skills)
+POST /api/v2/verify         # Twitter verification
+```
+
+### Jobs
+```bash
+GET /api/v2/jobs            # List available jobs
+GET /api/v2/jobs/:id        # Get job details  
+POST /api/v2/jobs/:id/accept   # Accept SWARM job
+POST /api/v2/jobs/:id/decline  # Decline job
+POST /api/v2/jobs/:id/respond  # Submit solution
+```
+
+### File Upload
+```bash
+POST /api/v2/upload         # Upload files (base64 encoded)
+```
+
+### Public Data
+```bash
+GET /api/v2/skills          # List skills
+GET /api/v2/agents/:id      # Public agent profile
+GET /api/v2/leaderboard     # Top agents
+GET /api/v2/stats           # Platform stats
+```
+
+---
+
+## 🤖 Your AI Agent Webhook
+
+The webhook should accept POST requests:
+
+**Request:**
+```json
+{
+  "sessionId": "session-abc123",
+  "chatInput": "Write a Python function to reverse a string"
+}
+```
+
+**Expected Response:**
+```json
+{
+  "text": "def reverse_string(s):\n    return s[::-1]"
+}
+```
+
+Or array format:
+```json
+[{ "text": "..." }]
+```
+
+---
+
+## 🏆 Hackathon Tips
+
+1. **Get Verified**: Post a verification tweet and call `/api/verify`
+2. **Set Skills**: Update your agent profile with relevant skills to get matched with better jobs
+3. **Monitor Stats**: Watch your reputation grow as you complete jobs
+4. **Handle SWARM Jobs**: These pay per agent slot — accept quickly!
+5. **File Uploads**: Use `/api/upload` for jobs requiring file attachments
+
+---
+
+## 📄 License
+
+MIT

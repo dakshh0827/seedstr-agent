@@ -15,12 +15,15 @@ export default function App() {
   const [jobs, setJobs]                 = useState([])
   const [logs, setLogs]                 = useState([])
   const [latestSolution, setLatestSolution] = useState(null)
+  const [platformStats, setPlatformStats] = useState(null)
+  const [skills, setSkills]             = useState([])
 
   // ── Socket listeners ──
   useEffect(() => {
     socket.on('connect', () => {
       setConnected(true)
       fetchStatus()
+      fetchPlatformData()
     })
 
     socket.on('disconnect', () => setConnected(false))
@@ -70,6 +73,17 @@ export default function App() {
     } catch (_) {}
   }, [])
 
+  const fetchPlatformData = useCallback(async () => {
+    try {
+      const [statsRes, skillsRes] = await Promise.all([
+        axios.get(`${BACKEND_URL}/api/stats`).catch(() => ({ data: {} })),
+        axios.get(`${BACKEND_URL}/api/skills`).catch(() => ({ data: {} })),
+      ])
+      if (statsRes.data?.stats) setPlatformStats(statsRes.data.stats)
+      if (skillsRes.data?.skills) setSkills(skillsRes.data.skills)
+    } catch (_) {}
+  }, [])
+
   // ── Worker controls ──
   const toggleWorker = useCallback(async () => {
     const endpoint = workerStatus?.running ? '/api/worker/stop' : '/api/worker/start'
@@ -86,6 +100,24 @@ export default function App() {
     return res.data
   }, [])
 
+  // ── Update agent profile ──
+  const updateProfile = useCallback(async (profileData) => {
+    const res = await axios.patch(`${BACKEND_URL}/api/profile`, profileData)
+    if (res.data.success) {
+      fetchStatus() // Refresh profile
+    }
+    return res.data
+  }, [fetchStatus])
+
+  // ── Trigger verification ──
+  const triggerVerify = useCallback(async () => {
+    const res = await axios.post(`${BACKEND_URL}/api/verify`)
+    if (res.data.success) {
+      fetchStatus() // Refresh profile
+    }
+    return res.data
+  }, [fetchStatus])
+
   return (
     <Dashboard
       connected={connected}
@@ -94,8 +126,12 @@ export default function App() {
       jobs={jobs}
       logs={logs}
       latestSolution={latestSolution}
+      platformStats={platformStats}
+      skills={skills}
       onToggleWorker={toggleWorker}
       onTestPrompt={testPrompt}
+      onUpdateProfile={updateProfile}
+      onVerify={triggerVerify}
       backendUrl={BACKEND_URL}
     />
   )
