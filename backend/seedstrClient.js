@@ -1,7 +1,6 @@
 /**
- * Seedstr API Client + Webhook Caller
- * Handles all external HTTP calls to Seedstr Platform
- * API Documentation: https://www.seedstr.io/api/v2
+ * Seedstr API Client — Full v2 implementation
+ * ZIP-aware webhook caller with magic byte detection
  */
 
 import axios from 'axios';
@@ -9,302 +8,245 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const SEEDSTR_BASE_URL = process.env.SEEDSTR_BASE_URL || 'https://www.seedstr.io';
-const SEEDSTR_API_KEY  = process.env.SEEDSTR_API_KEY  || '';
+let   SEEDSTR_API_KEY  = process.env.SEEDSTR_API_KEY  || '';
 
-// AI Agent Webhook URL (your deployed agent)
 const AGENT_WEBHOOK_URL = process.env.AGENT_WEBHOOK_URL ||
   'http://3.144.12.2:5678/webhook/713b4a9e-0c1f-4814-addf-e3e379f4c1d9';
 
-// Axios instance pre-configured for Seedstr (authenticated)
+// Authenticated axios — header injected at request time so runtime key updates work instantly
 const seedstrAxios = axios.create({
   baseURL: SEEDSTR_BASE_URL,
-  headers: {
-    'Authorization': `Bearer ${SEEDSTR_API_KEY}`,
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
+});
+seedstrAxios.interceptors.request.use(cfg => {
+  if (SEEDSTR_API_KEY) cfg.headers['Authorization'] = `Bearer ${SEEDSTR_API_KEY}`;
+  return cfg;
+});
+
+// Public axios — no auth needed (register, skills)
+const publicAxios = axios.create({
+  baseURL: SEEDSTR_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 });
 
-// Axios instance for public endpoints (no auth required)
-const seedstrPublicAxios = axios.create({
-  baseURL: SEEDSTR_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 30000,
-});
+export function setRuntimeApiKey(key) {
+  SEEDSTR_API_KEY = key;
+}
+
+// ─────────────────────────────────────────────
+// ZIP detection helpers
+// ─────────────────────────────────────────────
+
+/**
+ * Check if a Buffer starts with ZIP magic bytes: PK\x03\x04
+ * This is the most reliable way to detect a ZIP regardless of content-type header
+ */
+function isZipBuffer(buf) {
+  return (
+    buf.length > 3 &&
+    buf[0] === 0x50 && // P
+    buf[1] === 0x4b && // K
+    buf[2] === 0x03 &&
+    buf[3] === 0x04
+  );
+}
+
+/**
+ * Extract filename from Content-Disposition header
+ * e.g. "attachment; filename="solution.zip""
+ */
+function extractFilename(headers) {
+  const disposition = headers['content-disposition'] || '';
+  const match = disposition.match(/filename[^;=\n]*=\s*["']?([^"';\n]+)["']?/i);
+  if (match) return match[1].trim();
+
+  // Fall back to content-type or generic name
+  const ct = headers['content-type'] || '';
+  if (ct.includes('zip')) return 'solution.zip';
+  return 'solution.zip';
+}
+
+// ─────────────────────────────────────────────
+// Main client
+// ─────────────────────────────────────────────
 
 export const seedstrClient = {
-  // ─────────────────────────────────────────────
-  // Agent Registration & Profile
-  // ─────────────────────────────────────────────
 
-  /**
-   * POST /api/v2/register - Register a new agent
-   * @param {string} walletAddress - Solana or Ethereum wallet address
-   * @param {string} walletType - "ETH" or "SOL" (default: "ETH")
-   * @param {string} ownerUrl - URL to agent's homepage (optional)
-   * @returns {Object} { success, apiKey, agentId }
-   */
+  isConfigured: () => !!SEEDSTR_API_KEY,
+  getWebhookUrl: () => AGENT_WEBHOOK_URL,
+
+  // ── Registration ──
+
   async register(walletAddress, walletType = 'ETH', ownerUrl = null) {
+    const payload = { walletAddress, walletType };
+    if (ownerUrl) payload.ownerUrl = ownerUrl;
     try {
-      const payload = { walletAddress, walletType };
-      if (ownerUrl) payload.ownerUrl = ownerUrl;
-      
-      const res = await seedstrPublicAxios.post('/api/v2/register', payload);
-      return res.data;
+      const res = await publicAxios.post('/api/v2/register', payload);
+      return res.data; // { success, apiKey, agentId }
     } catch (err) {
-      throw new Error(
-        `Seedstr register failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`register: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  /**
-   * GET /api/v2/me - Get current agent's profile and stats
-   * @returns {Object} Agent profile with verification status
-   */
+  // ── Profile ──
+
   async getMe() {
+    if (!SEEDSTR_API_KEY) return null;
     try {
-      if (!SEEDSTR_API_KEY) return null;
       const res = await seedstrAxios.get('/api/v2/me');
       return res.data;
     } catch (err) {
-      console.warn(`Could not fetch agent profile: ${err.message}`);
+      console.warn(`getMe failed: ${err.message}`);
       return null;
     }
   },
 
-  /**
-   * PATCH /api/v2/me - Update agent profile
-   * @param {Object} profileData - { name, bio, profilePicture, skills }
-   * @returns {Object} { success, agent }
-   */
-  async updateProfile(profileData) {
+  async updateProfile({ name, bio, profilePicture, skills } = {}) {
+    const payload = {};
+    if (name)           payload.name           = name;
+    if (bio)            payload.bio            = bio;
+    if (profilePicture) payload.profilePicture = profilePicture;
+    if (skills?.length) payload.skills         = skills;
     try {
-      const res = await seedstrAxios.patch('/api/v2/me', profileData);
-      return res.data;
+      const res = await seedstrAxios.patch('/api/v2/me', payload);
+      return res.data; // { success, agent }
     } catch (err) {
-      throw new Error(
-        `Seedstr updateProfile failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`updateProfile: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  /**
-   * POST /api/v2/verify - Trigger Twitter verification check
-   * @returns {Object} { success, message, isVerified, ownerTwitter }
-   */
   async verify() {
     try {
       const res = await seedstrAxios.post('/api/v2/verify');
+      return res.data; // { success, message, isVerified, ownerTwitter }
+    } catch (err) {
+      throw new Error(`verify: ${err.response?.data?.message || err.message}`);
+    }
+  },
+
+  // ── Skills ──
+
+  async getSkills() {
+    try {
+      const res = await publicAxios.get('/api/v2/skills');
       return res.data;
     } catch (err) {
-      throw new Error(
-        `Seedstr verify failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`getSkills: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  // ─────────────────────────────────────────────
-  // Jobs Management
-  // ─────────────────────────────────────────────
+  // ── Jobs ──
 
-  /**
-   * GET /api/v2/jobs - Fetch available jobs
-   * @param {number} limit - Max jobs to return (default: 20, max: 50)
-   * @param {number} offset - Pagination offset
-   * @returns {Array} Array of job objects
-   */
   async fetchJobs(limit = 20, offset = 0) {
     try {
-      const res = await seedstrAxios.get('/api/v2/jobs', {
-        params: { limit, offset }
-      });
+      const res = await seedstrAxios.get('/api/v2/jobs', { params: { limit, offset } });
       return res.data?.jobs || res.data || [];
     } catch (err) {
-      throw new Error(
-        `Seedstr fetchJobs failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`fetchJobs: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  /**
-   * GET /api/v2/jobs/:id - Get job details
-   * @param {string} jobId - The job ID
-   * @returns {Object} Job details
-   */
   async getJob(jobId) {
     try {
       const res = await seedstrAxios.get(`/api/v2/jobs/${jobId}`);
       return res.data;
     } catch (err) {
-      throw new Error(
-        `Seedstr getJob failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`getJob: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  /**
-   * POST /api/v2/jobs/:id/accept - Accept a SWARM job
-   * @param {string} jobId - The job ID
-   * @returns {Object} { success, acceptance, slotsRemaining, isFull }
-   */
   async acceptJob(jobId) {
     try {
       const res = await seedstrAxios.post(`/api/v2/jobs/${jobId}/accept`);
-      return res.data;
+      return res.data; // { success, acceptance, slotsRemaining, isFull }
     } catch (err) {
-      throw new Error(
-        `Seedstr accept failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`acceptJob: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  /**
-   * POST /api/v2/jobs/:id/decline - Decline a job
-   * @param {string} jobId - The job ID
-   * @param {string} reason - Reason for declining (optional)
-   * @returns {Object} { success, message }
-   */
   async declineJob(jobId, reason = null) {
     try {
-      const payload = reason ? { reason } : {};
-      const res = await seedstrAxios.post(`/api/v2/jobs/${jobId}/decline`, payload);
+      const res = await seedstrAxios.post(
+        `/api/v2/jobs/${jobId}/decline`,
+        reason ? { reason } : {}
+      );
       return res.data;
     } catch (err) {
-      throw new Error(
-        `Seedstr decline failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`declineJob: ${err.response?.data?.message || err.message}`);
     }
   },
 
   /**
-   * POST /api/v2/jobs/:id/respond - Submit a response to a job
-   * @param {string} jobId - The job ID
-   * @param {string} content - Response content
-   * @param {string} responseType - 'TEXT' (default) or 'FILE'
-   * @param {Array} files - Array of file attachments (for FILE type)
-   * @returns {Object} { success, response, payout }
+   * Submit plain text response
    */
-  async submitSolution(jobId, content, responseType = 'TEXT', files = null) {
+  async submitTextSolution(jobId, content) {
     try {
-      const payload = { content, responseType };
-      if (responseType === 'FILE' && files) {
-        payload.files = files;
-      }
-      
-      const res = await seedstrAxios.post(`/api/v2/jobs/${jobId}/respond`, payload);
-      return res.data;
+      const res = await seedstrAxios.post(`/api/v2/jobs/${jobId}/respond`, {
+        content,
+        responseType: 'TEXT',
+      });
+      return res.data; // { success, response, payout }
     } catch (err) {
-      throw new Error(
-        `Seedstr respond failed: ${err.response?.data?.message || err.message}`
-      );
-    }
-  },
-
-  // ─────────────────────────────────────────────
-  // File Upload
-  // ─────────────────────────────────────────────
-
-  /**
-   * POST /api/v2/upload - Upload files for attachment
-   * @param {Array} files - Array of { name, content (base64), type }
-   * @returns {Object} { success, files: [{ url, name, size, type, key }] }
-   */
-  async uploadFiles(files) {
-    try {
-      const res = await seedstrAxios.post('/api/v2/upload', { files });
-      return res.data;
-    } catch (err) {
-      throw new Error(
-        `Seedstr upload failed: ${err.response?.data?.message || err.message}`
-      );
-    }
-  },
-
-  // ─────────────────────────────────────────────
-  // Skills
-  // ─────────────────────────────────────────────
-
-  /**
-   * GET /api/v2/skills - List available predefined skills
-   * @returns {Object} { skills: [], maxPerAgent: 15 }
-   */
-  async getSkills() {
-    try {
-      const res = await seedstrPublicAxios.get('/api/v2/skills');
-      return res.data;
-    } catch (err) {
-      throw new Error(
-        `Seedstr getSkills failed: ${err.response?.data?.message || err.message}`
-      );
-    }
-  },
-
-  // ─────────────────────────────────────────────
-  // Public Agent & Platform Data
-  // ─────────────────────────────────────────────
-
-  /**
-   * GET /api/v2/agents/:id - Get public agent profile
-   * @param {string} agentId - The agent ID
-   * @returns {Object} Agent public profile
-   */
-  async getAgent(agentId) {
-    try {
-      const res = await seedstrPublicAxios.get(`/api/v2/agents/${agentId}`);
-      return res.data;
-    } catch (err) {
-      throw new Error(
-        `Seedstr getAgent failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`submitTextSolution: ${err.response?.data?.message || err.message}`);
     }
   },
 
   /**
-   * GET /api/v2/leaderboard - Get top agents
-   * @param {string} sortBy - 'reputation', 'earnings', or 'jobs'
-   * @param {number} limit - Max agents to return (default: 50, max: 100)
-   * @returns {Object} { agents: [], total: number }
+   * Submit file (ZIP) response
+   * @param {string} jobId
+   * @param {string} content  — summary text, min 10 chars (required by API)
+   * @param {Array}  files    — [{ url, name, size, type }] from uploadFiles()
    */
-  async getLeaderboard(sortBy = 'reputation', limit = 50) {
+  async submitFileSolution(jobId, content, files) {
     try {
-      const res = await seedstrPublicAxios.get('/api/v2/leaderboard', {
-        params: { sortBy, limit }
+      const res = await seedstrAxios.post(`/api/v2/jobs/${jobId}/respond`, {
+        content,
+        responseType: 'FILE',
+        files,
       });
       return res.data;
     } catch (err) {
-      throw new Error(
-        `Seedstr getLeaderboard failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`submitFileSolution: ${err.response?.data?.message || err.message}`);
     }
   },
 
   /**
-   * GET /api/v2/stats - Get platform-wide statistics
-   * @returns {Object} Platform stats
+   * Upload files to Seedstr CDN
+   * @param {Array} files — [{ name, content: Buffer, type }]
+   * @returns {{ success, files: [{ url, name, size, type, key }] }}
    */
-  async getStats() {
+  async uploadFiles(files) {
+    const prepared = files.map(f => ({
+      name:    f.name,
+      type:    f.type || 'application/zip',
+      // Convert Buffer → base64 string; if already a string, pass as-is
+      content: Buffer.isBuffer(f.content)
+        ? f.content.toString('base64')
+        : f.content,
+    }));
     try {
-      const res = await seedstrPublicAxios.get('/api/v2/stats');
-      return res.data;
+      const res = await seedstrAxios.post('/api/v2/upload', { files: prepared });
+      return res.data; // { success, files: [{ url, name, size, type, key }] }
     } catch (err) {
-      throw new Error(
-        `Seedstr getStats failed: ${err.response?.data?.message || err.message}`
-      );
+      throw new Error(`uploadFiles: ${err.response?.data?.message || err.message}`);
     }
   },
 
-  // ─────────────────────────────────────────────
-  // AI Agent Webhook
-  // ─────────────────────────────────────────────
+  // ── AI Webhook ──
 
   /**
-   * Send a prompt to the AI coding agent webhook
-   * @param {string} prompt - The coding prompt
-   * @param {string} sessionId - Session identifier
-   * @returns {string} Cleaned solution response
+   * Call the n8n agent webhook.
+   *
+   * Always requests arraybuffer so we receive raw bytes regardless of what
+   * content-type the webhook sends back. We then check the ZIP magic bytes
+   * (PK\x03\x04) to decide how to handle the response — this is more
+   * reliable than trusting the content-type header.
+   *
+   * Returns one of:
+   *   { type: 'file',  fileBuffer: Buffer, fileName: string, mimeType: string }
+   *   { type: 'text',  content: string }
    */
   async callWebhook(prompt, sessionId = 'dev-session-001') {
     const res = await axios.post(
@@ -312,63 +254,70 @@ export const seedstrClient = {
       { sessionId, chatInput: prompt },
       {
         headers: { 'Content-Type': 'application/json' },
-        timeout: 120000
+        timeout: 120000,
+        responseType: 'arraybuffer', // always receive raw bytes
       }
     );
 
-    let data = res.data;
+    const rawBuffer = Buffer.from(res.data);
+    const contentType = (res.headers['content-type'] || '').toLowerCase();
 
-    // Handle array responses
+    // ── ZIP detection: magic bytes first, content-type as fallback ──
+    const looksLikeZip =
+      isZipBuffer(rawBuffer) ||
+      contentType.includes('zip') ||
+      contentType.includes('octet-stream');
+
+    if (looksLikeZip) {
+      const fileName = extractFilename(res.headers);
+      return {
+        type:       'file',
+        fileBuffer: rawBuffer,
+        fileName:   fileName.endsWith('.zip') ? fileName : `${fileName}.zip`,
+        mimeType:   'application/zip',
+      };
+    }
+
+    // ── Text / JSON response ──
+    const text = rawBuffer.toString('utf-8');
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Plain text — clean and return
+      return { type: 'text', content: cleanResponse(text) };
+    }
+
+    // Unwrap common n8n response shapes
     if (Array.isArray(data)) {
-      if (data[0]?.text) {
-        data = data[0].text;
-      } else {
-        data = JSON.stringify(data);
-      }
+      data = data[0]?.text ?? data[0]?.output ?? JSON.stringify(data);
+    } else if (typeof data === 'object' && data !== null) {
+      data = data.text ?? data.output ?? data.response ?? data.content ?? JSON.stringify(data);
     }
 
-    if (typeof data === 'object') {
-      if (data.text) return cleanResponse(data.text);
-      if (data.output) return cleanResponse(data.output);
-      if (data.response) return cleanResponse(data.response);
-    }
-
-    return cleanResponse(data);
-  },
-
-  /**
-   * Get the configured webhook URL
-   * @returns {string} Webhook URL
-   */
-  getWebhookUrl() {
-    return AGENT_WEBHOOK_URL;
-  },
-
-  /**
-   * Check if API key is configured
-   * @returns {boolean}
-   */
-  isConfigured() {
-    return !!SEEDSTR_API_KEY;
+    return { type: 'text', content: cleanResponse(String(data)) };
   },
 };
 
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
 function cleanResponse(text) {
-  if (!text) return ""
-
-  let cleaned = text
-
-  // remove markdown headers
-  cleaned = cleaned.replace(/^#{1,6}\s*/gm, "")
-
-  // remove copy/sql artifacts
-  cleaned = cleaned.replace(/\b(copy|sql)\b\s*\n/gi, "")
-
-  // normalize code blocks
-  cleaned = cleaned.replace(/```(\w+)?/g, "```")
-
-  // remove excessive blank lines
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n")
-
-  return cleaned.trim()
+  if (!text) return '';
+  return text
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\b(copy|sql)\b\s*\n/gi, '')
+    .replace(/```(\w+)?/g, '```')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
+
+function formatBytes(bytes) {
+  if (!bytes) return '?';
+  if (bytes < 1024)          return `${bytes} B`;
+  if (bytes < 1024 * 1024)   return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export { formatBytes };
