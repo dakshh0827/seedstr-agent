@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg:          #0c0c0d;
+    --bg-raised:   #111113;
+    --bg-overlay:  #161618;
+    --bg-subtle:   #1c1c1f;
+    --border:      #232326;
+    --border-mid:  #2e2e33;
+    --border-hi:   #3d3d45;
+
+    --amber:       #f59e0b;
+    --amber-dim:   rgba(245,158,11,0.12);
+    --amber-glow:  rgba(245,158,11,0.06);
+    --green:       #22c55e;
+    --red:         #ef4444;
+    --blue:        #3b82f6;
+
+    --text-1:      #f0f0f2;
+    --text-2:      #8b8b96;
+    --text-3:      #4a4a52;
+
+    --mono: 'Geist Mono', 'Fira Code', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--amber-dim); color: var(--amber); }
+
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 2px; }
+}
+
+.panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: var(--mono);
+}
+
+.badge-pending  { background: rgba(245,158,11,0.1);  color: #f59e0b; border: 1px solid rgba(245,158,11,0.2); }
+.badge-solving  { background: rgba(59,130,246,0.1);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); }
+.badge-done     { background: rgba(34,197,94,0.1);   color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
+.badge-failed   { background: rgba(239,68,68,0.1);   color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--mono);
+  cursor: pointer;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  transition: all 0.15s ease;
+  outline: none;
+}
+.btn:hover { border-color: var(--border-hi); color: var(--text-1); }
+.btn-primary { background: var(--amber-dim); border-color: rgba(245,158,11,0.3); color: var(--amber); }
+.btn-primary:hover { background: rgba(245,158,11,0.18); }
+.btn-danger  { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #f87171; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+textarea {
+  background: var(--bg);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+  caret-color: var(--amber);
+}
+textarea:focus { border-color: var(--border-hi); }
+textarea::placeholder { color: var(--text-3); }
+
+pre {
+  margin: 0 !important;
+  border-radius: 4px !important;
+  font-family: var(--mono) !important;
+  font-size: 11.5px !important;
+  line-height: 1.65 !important;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skel {
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--bg-subtle) 25%, var(--bg-overlay) 50%, var(--bg-subtle) 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.25s ease forwards; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.dot-live { animation: blink 2s ease-in-out infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.7s linear infinite; }
